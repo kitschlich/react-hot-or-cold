@@ -1,8 +1,14 @@
 var React = require('react');
 var ReactDOM = require('react-dom');
+var Provider = require('react-redux').Provider;
 
-var SomeComponent = require('./some-component');
+var store = require('./store');
+var Game = require('./components/game');
 
 document.addEventListener('DOMContentLoaded', function() {
-    ReactDOM.render(<SomeComponent text="This is some component."/>, document.getElementById('app'));
+    ReactDOM.render(
+      <Provider store={store}>
+        <Game />
+      </Provider>,
+      document.getElementById('app'));
 });
