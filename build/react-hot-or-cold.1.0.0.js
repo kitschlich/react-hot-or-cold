@@ -51,7 +51,7 @@
 	var Provider = __webpack_require__(172).Provider;
 	
 	var store = __webpack_require__(196);
-	var Game = __webpack_require__(199);
+	var Game = __webpack_require__(202);
 	
 	document.addEventListener('DOMContentLoaded', function () {
 	  ReactDOM.render(React.createElement(
@@ -23034,20 +23034,50 @@
 	
 	var redux = __webpack_require__(179);
 	var createStore = redux.createStore;
+	var applyMiddleware = redux.applyMiddleware;
+	var thunk = __webpack_require__(197).default;
 	
-	var reducers = __webpack_require__(197);
+	var reducers = __webpack_require__(198);
 	
-	var store = createStore(reducers.gameReducer);
+	var store = createStore(reducers.gameReducer, applyMiddleware(thunk));
 	
 	module.exports = store;
 
 /***/ },
 /* 197 */
+/***/ function(module, exports) {
+
+	'use strict';
+	
+	exports.__esModule = true;
+	function createThunkMiddleware(extraArgument) {
+	  return function (_ref) {
+	    var dispatch = _ref.dispatch;
+	    var getState = _ref.getState;
+	    return function (next) {
+	      return function (action) {
+	        if (typeof action === 'function') {
+	          return action(dispatch, getState, extraArgument);
+	        }
+	
+	        return next(action);
+	      };
+	    };
+	  };
+	}
+	
+	var thunk = createThunkMiddleware();
+	thunk.withExtraArgument = createThunkMiddleware;
+	
+	exports['default'] = thunk;
+
+/***/ },
+/* 198 */
 /***/ function(module, exports, __webpack_require__) {
 
 	'use strict';
 	
-	var actions = __webpack_require__(198);
+	var actions = __webpack_require__(199);
 	
 	var difference = function difference(a, b) {
 	  return Math.abs(a - b);
@@ -23059,26 +23089,33 @@
 	
 	var initialGameState = {
 	  randomNumber: random(),
-	  difference: [100],
-	  hints: []
+	  difference: 100,
+	  hints: [],
+	  fewestGuesses: null,
+	  win: false
 	};
 	
 	var gameReducer = function gameReducer(state, action) {
 	  console.log('Action:', action);
 	  state = state || initialGameState;
+	  console.log('State:', state);
 	  if (action.type === actions.NEW_GAME) {
 	    return Object.assign({}, state, {
 	      randomNumber: random(),
-	      difference: [100],
-	      hints: []
+	      difference: 100,
+	      hints: [],
+	      win: false
 	    });
 	  } else if (action.type === actions.GUESS_NUMBER) {
 	    var hintWord;
-	    var lastDifference = state.difference[state.difference.length - 1];
+	    var lastDifference = state.difference;
 	    var currentDifference = difference(state.randomNumber, action.number);
 	
 	    if (action.number == state.randomNumber) {
-	      hintWord = 'You guessed it!';
+	      actions.saveGuesses(state.hints.length);
+	      return Object.assign({}, state, {
+	        win: true
+	      });
 	    } else if (currentDifference > lastDifference) {
 	      hintWord = 'colder';
 	    } else if (currentDifference < lastDifference) {
@@ -23086,10 +23123,23 @@
 	    } else {
 	      hintWord = 'same as the last guess!';
 	    }
-	    console.log('action.number:', action.number);
 	    return Object.assign({}, state, {
 	      hints: state.hints.concat(action.number + ': ' + hintWord),
-	      difference: state.difference.concat(currentDifference)
+	      difference: currentDifference
+	    });
+	  } else if (action.type === actions.FETCH_GUESSES_SUCCESS) {
+	    var guessesToReturn;
+	    if (action.guesses > 100) {
+	      guessesToReturn = 'unknown';
+	    } else {
+	      guessesToReturn = action.guesses;
+	    }
+	    return Object.assign({}, state, {
+	      fewestGuesses: guessesToReturn
+	    });
+	  } else if (action.type === actions.FETCH_GUESSES_ERROR) {
+	    return Object.assign({}, state, {
+	      fewestGuesses: 'Error fetching fewest guesses!'
 	    });
 	  }
 	  return state;
@@ -23098,39 +23148,573 @@
 	exports.gameReducer = gameReducer;
 
 /***/ },
-/* 198 */
-/***/ function(module, exports) {
+/* 199 */
+/***/ function(module, exports, __webpack_require__) {
 
 	'use strict';
 	
-	/* Actions that must occur during a game:
-	- Generate a random number
-	- Guess a number
-	- Compare guess to generated number
-	*/
+	var fetch = __webpack_require__(200);
 	
 	var NEW_GAME = 'NEW_GAME';
 	var newGame = function newGame() {
-	  return {
-	    type: NEW_GAME
-	  };
+	    return {
+	        type: NEW_GAME
+	    };
 	};
 	
 	var GUESS_NUMBER = 'GUESS_NUMBER';
 	var guessNumber = function guessNumber(number) {
-	  return {
-	    type: GUESS_NUMBER,
-	    number: number
-	  };
+	    return {
+	        type: GUESS_NUMBER,
+	        number: number
+	    };
+	};
+	
+	var FETCH_GUESSES_SUCCESS = 'FETCH_GUESSES_SUCCESS';
+	var fetchGuessesSuccess = function fetchGuessesSuccess(guesses) {
+	    return {
+	        type: FETCH_GUESSES_SUCCESS,
+	        guesses: guesses
+	    };
+	};
+	
+	var FETCH_GUESSES_ERROR = 'FETCH_GUESSES_ERROR';
+	var fetchGuessesError = function fetchGuessesError(error) {
+	    return {
+	        type: FETCH_GUESSES_ERROR,
+	        error: error
+	    };
+	};
+	
+	var fetchGuesses = function fetchGuesses() {
+	    return function (dispatch) {
+	        var url = '/guesses';
+	        return fetch(url).then(function (response) {
+	            if (response.status < 200 || response.status >= 300) {
+	                var error = new Error(response.statusText);
+	                error.response = response;
+	                throw error;
+	            }
+	            return response;
+	        }).then(function (response) {
+	            return response.json();
+	        }).then(function (data) {
+	            var guesses = data;
+	            return dispatch(fetchGuessesSuccess(guesses));
+	        }).catch(function (error) {
+	            return dispatch(fetchGuessesError(error));
+	        });
+	    };
+	};
+	
+	var SAVE_GUESSES_SUCCESS = 'SAVE_GUESSES_SUCCESS';
+	var saveGuessesSuccess = function saveGuessesSuccess(guesses) {
+	    return {
+	        type: SAVE_GUESSES_SUCCESS,
+	        guesses: guesses
+	    };
+	};
+	
+	var SAVE_GUESSES_ERROR = 'SAVE_GUESSES_ERROR';
+	var saveGuessesError = function saveGuessesError(error) {
+	    return {
+	        type: SAVE_GUESSES_ERROR,
+	        error: error
+	    };
+	};
+	
+	var saveGuesses = function saveGuesses(guesses) {
+	    console.log('guesses:', guesses);
+	    return function (dispatch) {
+	        var data = {
+	            method: 'POST'
+	        };
+	        return fetch('/guesses/' + guesses, data).then(function (response) {
+	            if (response.status < 200 || response.status >= 300) {
+	                var error = new Error(response.statusText);
+	                error.response = response;
+	                throw error;
+	            }
+	            return response;
+	        }).then(function (response) {
+	            return response.json();
+	        }).then(function (data) {
+	            var guesses = data;
+	            return dispatch(saveGuessesSuccess(guesses));
+	        }).catch(function (error) {
+	            return dispatch(saveGuessesError(error));
+	        });
+	    };
 	};
 	
 	exports.NEW_GAME = NEW_GAME;
 	exports.newGame = newGame;
 	exports.GUESS_NUMBER = GUESS_NUMBER;
 	exports.guessNumber = guessNumber;
+	exports.FETCH_GUESSES_SUCCESS = FETCH_GUESSES_SUCCESS;
+	exports.fetchGuessesSuccess = fetchGuessesSuccess;
+	exports.FETCH_GUESSES_ERROR = FETCH_GUESSES_ERROR;
+	exports.fetchGuessesError = fetchGuessesError;
+	exports.fetchGuesses = fetchGuesses;
+	exports.SAVE_GUESSES_SUCCESS = SAVE_GUESSES_SUCCESS;
+	exports.saveGuessesSuccess = saveGuessesSuccess;
+	exports.SAVE_GUESSES_ERROR = SAVE_GUESSES_ERROR;
+	exports.saveGuessesError = saveGuessesError;
+	exports.saveGuesses = saveGuesses;
 
 /***/ },
-/* 199 */
+/* 200 */
+/***/ function(module, exports, __webpack_require__) {
+
+	// the whatwg-fetch polyfill installs the fetch() function
+	// on the global object (window or self)
+	//
+	// Return that as the export for use in Webpack, Browserify etc.
+	__webpack_require__(201);
+	module.exports = self.fetch.bind(self);
+
+
+/***/ },
+/* 201 */
+/***/ function(module, exports) {
+
+	(function(self) {
+	  'use strict';
+	
+	  if (self.fetch) {
+	    return
+	  }
+	
+	  var support = {
+	    searchParams: 'URLSearchParams' in self,
+	    iterable: 'Symbol' in self && 'iterator' in Symbol,
+	    blob: 'FileReader' in self && 'Blob' in self && (function() {
+	      try {
+	        new Blob()
+	        return true
+	      } catch(e) {
+	        return false
+	      }
+	    })(),
+	    formData: 'FormData' in self,
+	    arrayBuffer: 'ArrayBuffer' in self
+	  }
+	
+	  function normalizeName(name) {
+	    if (typeof name !== 'string') {
+	      name = String(name)
+	    }
+	    if (/[^a-z0-9\-#$%&'*+.\^_`|~]/i.test(name)) {
+	      throw new TypeError('Invalid character in header field name')
+	    }
+	    return name.toLowerCase()
+	  }
+	
+	  function normalizeValue(value) {
+	    if (typeof value !== 'string') {
+	      value = String(value)
+	    }
+	    return value
+	  }
+	
+	  // Build a destructive iterator for the value list
+	  function iteratorFor(items) {
+	    var iterator = {
+	      next: function() {
+	        var value = items.shift()
+	        return {done: value === undefined, value: value}
+	      }
+	    }
+	
+	    if (support.iterable) {
+	      iterator[Symbol.iterator] = function() {
+	        return iterator
+	      }
+	    }
+	
+	    return iterator
+	  }
+	
+	  function Headers(headers) {
+	    this.map = {}
+	
+	    if (headers instanceof Headers) {
+	      headers.forEach(function(value, name) {
+	        this.append(name, value)
+	      }, this)
+	
+	    } else if (headers) {
+	      Object.getOwnPropertyNames(headers).forEach(function(name) {
+	        this.append(name, headers[name])
+	      }, this)
+	    }
+	  }
+	
+	  Headers.prototype.append = function(name, value) {
+	    name = normalizeName(name)
+	    value = normalizeValue(value)
+	    var list = this.map[name]
+	    if (!list) {
+	      list = []
+	      this.map[name] = list
+	    }
+	    list.push(value)
+	  }
+	
+	  Headers.prototype['delete'] = function(name) {
+	    delete this.map[normalizeName(name)]
+	  }
+	
+	  Headers.prototype.get = function(name) {
+	    var values = this.map[normalizeName(name)]
+	    return values ? values[0] : null
+	  }
+	
+	  Headers.prototype.getAll = function(name) {
+	    return this.map[normalizeName(name)] || []
+	  }
+	
+	  Headers.prototype.has = function(name) {
+	    return this.map.hasOwnProperty(normalizeName(name))
+	  }
+	
+	  Headers.prototype.set = function(name, value) {
+	    this.map[normalizeName(name)] = [normalizeValue(value)]
+	  }
+	
+	  Headers.prototype.forEach = function(callback, thisArg) {
+	    Object.getOwnPropertyNames(this.map).forEach(function(name) {
+	      this.map[name].forEach(function(value) {
+	        callback.call(thisArg, value, name, this)
+	      }, this)
+	    }, this)
+	  }
+	
+	  Headers.prototype.keys = function() {
+	    var items = []
+	    this.forEach(function(value, name) { items.push(name) })
+	    return iteratorFor(items)
+	  }
+	
+	  Headers.prototype.values = function() {
+	    var items = []
+	    this.forEach(function(value) { items.push(value) })
+	    return iteratorFor(items)
+	  }
+	
+	  Headers.prototype.entries = function() {
+	    var items = []
+	    this.forEach(function(value, name) { items.push([name, value]) })
+	    return iteratorFor(items)
+	  }
+	
+	  if (support.iterable) {
+	    Headers.prototype[Symbol.iterator] = Headers.prototype.entries
+	  }
+	
+	  function consumed(body) {
+	    if (body.bodyUsed) {
+	      return Promise.reject(new TypeError('Already read'))
+	    }
+	    body.bodyUsed = true
+	  }
+	
+	  function fileReaderReady(reader) {
+	    return new Promise(function(resolve, reject) {
+	      reader.onload = function() {
+	        resolve(reader.result)
+	      }
+	      reader.onerror = function() {
+	        reject(reader.error)
+	      }
+	    })
+	  }
+	
+	  function readBlobAsArrayBuffer(blob) {
+	    var reader = new FileReader()
+	    reader.readAsArrayBuffer(blob)
+	    return fileReaderReady(reader)
+	  }
+	
+	  function readBlobAsText(blob) {
+	    var reader = new FileReader()
+	    reader.readAsText(blob)
+	    return fileReaderReady(reader)
+	  }
+	
+	  function Body() {
+	    this.bodyUsed = false
+	
+	    this._initBody = function(body) {
+	      this._bodyInit = body
+	      if (typeof body === 'string') {
+	        this._bodyText = body
+	      } else if (support.blob && Blob.prototype.isPrototypeOf(body)) {
+	        this._bodyBlob = body
+	      } else if (support.formData && FormData.prototype.isPrototypeOf(body)) {
+	        this._bodyFormData = body
+	      } else if (support.searchParams && URLSearchParams.prototype.isPrototypeOf(body)) {
+	        this._bodyText = body.toString()
+	      } else if (!body) {
+	        this._bodyText = ''
+	      } else if (support.arrayBuffer && ArrayBuffer.prototype.isPrototypeOf(body)) {
+	        // Only support ArrayBuffers for POST method.
+	        // Receiving ArrayBuffers happens via Blobs, instead.
+	      } else {
+	        throw new Error('unsupported BodyInit type')
+	      }
+	
+	      if (!this.headers.get('content-type')) {
+	        if (typeof body === 'string') {
+	          this.headers.set('content-type', 'text/plain;charset=UTF-8')
+	        } else if (this._bodyBlob && this._bodyBlob.type) {
+	          this.headers.set('content-type', this._bodyBlob.type)
+	        } else if (support.searchParams && URLSearchParams.prototype.isPrototypeOf(body)) {
+	          this.headers.set('content-type', 'application/x-www-form-urlencoded;charset=UTF-8')
+	        }
+	      }
+	    }
+	
+	    if (support.blob) {
+	      this.blob = function() {
+	        var rejected = consumed(this)
+	        if (rejected) {
+	          return rejected
+	        }
+	
+	        if (this._bodyBlob) {
+	          return Promise.resolve(this._bodyBlob)
+	        } else if (this._bodyFormData) {
+	          throw new Error('could not read FormData body as blob')
+	        } else {
+	          return Promise.resolve(new Blob([this._bodyText]))
+	        }
+	      }
+	
+	      this.arrayBuffer = function() {
+	        return this.blob().then(readBlobAsArrayBuffer)
+	      }
+	
+	      this.text = function() {
+	        var rejected = consumed(this)
+	        if (rejected) {
+	          return rejected
+	        }
+	
+	        if (this._bodyBlob) {
+	          return readBlobAsText(this._bodyBlob)
+	        } else if (this._bodyFormData) {
+	          throw new Error('could not read FormData body as text')
+	        } else {
+	          return Promise.resolve(this._bodyText)
+	        }
+	      }
+	    } else {
+	      this.text = function() {
+	        var rejected = consumed(this)
+	        return rejected ? rejected : Promise.resolve(this._bodyText)
+	      }
+	    }
+	
+	    if (support.formData) {
+	      this.formData = function() {
+	        return this.text().then(decode)
+	      }
+	    }
+	
+	    this.json = function() {
+	      return this.text().then(JSON.parse)
+	    }
+	
+	    return this
+	  }
+	
+	  // HTTP methods whose capitalization should be normalized
+	  var methods = ['DELETE', 'GET', 'HEAD', 'OPTIONS', 'POST', 'PUT']
+	
+	  function normalizeMethod(method) {
+	    var upcased = method.toUpperCase()
+	    return (methods.indexOf(upcased) > -1) ? upcased : method
+	  }
+	
+	  function Request(input, options) {
+	    options = options || {}
+	    var body = options.body
+	    if (Request.prototype.isPrototypeOf(input)) {
+	      if (input.bodyUsed) {
+	        throw new TypeError('Already read')
+	      }
+	      this.url = input.url
+	      this.credentials = input.credentials
+	      if (!options.headers) {
+	        this.headers = new Headers(input.headers)
+	      }
+	      this.method = input.method
+	      this.mode = input.mode
+	      if (!body) {
+	        body = input._bodyInit
+	        input.bodyUsed = true
+	      }
+	    } else {
+	      this.url = input
+	    }
+	
+	    this.credentials = options.credentials || this.credentials || 'omit'
+	    if (options.headers || !this.headers) {
+	      this.headers = new Headers(options.headers)
+	    }
+	    this.method = normalizeMethod(options.method || this.method || 'GET')
+	    this.mode = options.mode || this.mode || null
+	    this.referrer = null
+	
+	    if ((this.method === 'GET' || this.method === 'HEAD') && body) {
+	      throw new TypeError('Body not allowed for GET or HEAD requests')
+	    }
+	    this._initBody(body)
+	  }
+	
+	  Request.prototype.clone = function() {
+	    return new Request(this)
+	  }
+	
+	  function decode(body) {
+	    var form = new FormData()
+	    body.trim().split('&').forEach(function(bytes) {
+	      if (bytes) {
+	        var split = bytes.split('=')
+	        var name = split.shift().replace(/\+/g, ' ')
+	        var value = split.join('=').replace(/\+/g, ' ')
+	        form.append(decodeURIComponent(name), decodeURIComponent(value))
+	      }
+	    })
+	    return form
+	  }
+	
+	  function headers(xhr) {
+	    var head = new Headers()
+	    var pairs = (xhr.getAllResponseHeaders() || '').trim().split('\n')
+	    pairs.forEach(function(header) {
+	      var split = header.trim().split(':')
+	      var key = split.shift().trim()
+	      var value = split.join(':').trim()
+	      head.append(key, value)
+	    })
+	    return head
+	  }
+	
+	  Body.call(Request.prototype)
+	
+	  function Response(bodyInit, options) {
+	    if (!options) {
+	      options = {}
+	    }
+	
+	    this.type = 'default'
+	    this.status = options.status
+	    this.ok = this.status >= 200 && this.status < 300
+	    this.statusText = options.statusText
+	    this.headers = options.headers instanceof Headers ? options.headers : new Headers(options.headers)
+	    this.url = options.url || ''
+	    this._initBody(bodyInit)
+	  }
+	
+	  Body.call(Response.prototype)
+	
+	  Response.prototype.clone = function() {
+	    return new Response(this._bodyInit, {
+	      status: this.status,
+	      statusText: this.statusText,
+	      headers: new Headers(this.headers),
+	      url: this.url
+	    })
+	  }
+	
+	  Response.error = function() {
+	    var response = new Response(null, {status: 0, statusText: ''})
+	    response.type = 'error'
+	    return response
+	  }
+	
+	  var redirectStatuses = [301, 302, 303, 307, 308]
+	
+	  Response.redirect = function(url, status) {
+	    if (redirectStatuses.indexOf(status) === -1) {
+	      throw new RangeError('Invalid status code')
+	    }
+	
+	    return new Response(null, {status: status, headers: {location: url}})
+	  }
+	
+	  self.Headers = Headers
+	  self.Request = Request
+	  self.Response = Response
+	
+	  self.fetch = function(input, init) {
+	    return new Promise(function(resolve, reject) {
+	      var request
+	      if (Request.prototype.isPrototypeOf(input) && !init) {
+	        request = input
+	      } else {
+	        request = new Request(input, init)
+	      }
+	
+	      var xhr = new XMLHttpRequest()
+	
+	      function responseURL() {
+	        if ('responseURL' in xhr) {
+	          return xhr.responseURL
+	        }
+	
+	        // Avoid security warnings on getResponseHeader when not allowed by CORS
+	        if (/^X-Request-URL:/m.test(xhr.getAllResponseHeaders())) {
+	          return xhr.getResponseHeader('X-Request-URL')
+	        }
+	
+	        return
+	      }
+	
+	      xhr.onload = function() {
+	        var options = {
+	          status: xhr.status,
+	          statusText: xhr.statusText,
+	          headers: headers(xhr),
+	          url: responseURL()
+	        }
+	        var body = 'response' in xhr ? xhr.response : xhr.responseText
+	        resolve(new Response(body, options))
+	      }
+	
+	      xhr.onerror = function() {
+	        reject(new TypeError('Network request failed'))
+	      }
+	
+	      xhr.ontimeout = function() {
+	        reject(new TypeError('Network request failed'))
+	      }
+	
+	      xhr.open(request.method, request.url, true)
+	
+	      if (request.credentials === 'include') {
+	        xhr.withCredentials = true
+	      }
+	
+	      if ('responseType' in xhr && support.blob) {
+	        xhr.responseType = 'blob'
+	      }
+	
+	      request.headers.forEach(function(value, name) {
+	        xhr.setRequestHeader(name, value)
+	      })
+	
+	      xhr.send(typeof request._bodyInit === 'undefined' ? null : request._bodyInit)
+	    })
+	  }
+	  self.fetch.polyfill = true
+	})(typeof self !== 'undefined' ? self : this);
+
+
+/***/ },
+/* 202 */
 /***/ function(module, exports, __webpack_require__) {
 
 	'use strict';
@@ -23138,8 +23722,11 @@
 	var React = __webpack_require__(1);
 	var connect = __webpack_require__(172).connect;
 	
-	var Hint = __webpack_require__(200);
-	var actions = __webpack_require__(198);
+	var Hint = __webpack_require__(203);
+	var FewestGuesses = __webpack_require__(204);
+	var NewGame = __webpack_require__(205);
+	
+	var actions = __webpack_require__(199);
 	
 	var Game = React.createClass({
 	  displayName: 'Game',
@@ -23147,9 +23734,6 @@
 	  compareGuess: function compareGuess(guess) {
 	    var currentGuess = this.refs.currentGuess.value;
 	    this.props.dispatch(actions.guessNumber(currentGuess));
-	  },
-	  newGame: function newGame() {
-	    this.props.dispatch(actions.newGame());
 	  },
 	  render: function render() {
 	    var hints = this.props.hints.map(function (hint, key) {
@@ -23168,6 +23752,7 @@
 	        null,
 	        'Try to guess the mystery number!'
 	      ),
+	      React.createElement(FewestGuesses, null),
 	      hints,
 	      React.createElement('input', { type: 'text', ref: 'currentGuess' }),
 	      React.createElement(
@@ -23175,23 +23760,16 @@
 	        { type: 'button', onClick: this.compareGuess },
 	        'Guess!'
 	      ),
-	      React.createElement(
-	        'div',
-	        null,
-	        React.createElement(
-	          'button',
-	          { type: 'button', onClick: this.newGame },
-	          'New Game'
-	        )
-	      )
+	      this.props.win ? React.createElement(NewGame, null) : null
 	    );
 	  }
 	});
 	
 	var mapStateToProps = function mapStateToProps(state, props) {
-	  console.log('State:', state);
 	  return {
-	    hints: state.hints
+	    hints: state.hints,
+	    win: state.win,
+	    fewestGuesses: state.fewestGuesses
 	  };
 	};
 	
@@ -23200,7 +23778,7 @@
 	module.exports = Container;
 
 /***/ },
-/* 200 */
+/* 203 */
 /***/ function(module, exports, __webpack_require__) {
 
 	"use strict";
@@ -23216,6 +23794,102 @@
 	};
 	
 	module.exports = Hint;
+
+/***/ },
+/* 204 */
+/***/ function(module, exports, __webpack_require__) {
+
+	'use strict';
+	
+	var React = __webpack_require__(1);
+	var connect = __webpack_require__(172).connect;
+	
+	var actions = __webpack_require__(199);
+	
+	var FewestGuesses = React.createClass({
+	    displayName: 'FewestGuesses',
+	
+	    componentDidMount: function componentDidMount() {
+	        console.log('fewestguesses mounted');
+	        this.props.dispatch(actions.fetchGuesses());
+	    },
+	    render: function render() {
+	        return React.createElement(
+	            'div',
+	            { className: 'fewest-guesses' },
+	            console.log(this.props),
+	            React.createElement(
+	                'h3',
+	                null,
+	                'Best game so far: ',
+	                this.props.fewestGuesses,
+	                ' guesses'
+	            )
+	        );
+	    }
+	});
+	
+	var mapStateToProps = function mapStateToProps(state, props) {
+	    return {
+	        fewestGuesses: state.fewestGuesses
+	    };
+	};
+	
+	var Container = connect(mapStateToProps)(FewestGuesses);
+	
+	module.exports = Container;
+
+/***/ },
+/* 205 */
+/***/ function(module, exports, __webpack_require__) {
+
+	'use strict';
+	
+	var React = __webpack_require__(1);
+	var connect = __webpack_require__(172).connect;
+	
+	var actions = __webpack_require__(199);
+	
+	var NewGame = React.createClass({
+	  displayName: 'NewGame',
+	
+	  componentDidMount: function componentDidMount() {
+	    console.log('new-game mounted');
+	    this.props.dispatch(actions.saveGuesses(this.props.hints.length + 1));
+	  },
+	  componentWillUnmount: function componentWillUnmount() {
+	    this.props.dispatch(actions.fetchGuesses());
+	  },
+	  newGame: function newGame() {
+	    this.props.dispatch(actions.newGame());
+	  },
+	  render: function render() {
+	    return React.createElement(
+	      'div',
+	      { className: 'newGame' },
+	      React.createElement(
+	        'h2',
+	        null,
+	        'You Win!'
+	      ),
+	      React.createElement(
+	        'button',
+	        { type: 'button', onClick: this.newGame },
+	        'New Game'
+	      )
+	    );
+	  }
+	});
+	
+	var mapStateToProps = function mapStateToProps(state, props) {
+	  return {
+	    hints: state.hints
+	  };
+	};
+	
+	var Container = connect(mapStateToProps)(NewGame);
+	
+	module.exports = Container;
 
 /***/ }
 /******/ ]);

@@ -1,4 +1,4 @@
-var actions = require('../actions/index');
+ var actions = require('../actions/index');
 
 var difference = function(a, b) {
   return Math.abs(a - b);
@@ -10,27 +10,34 @@ var random = function() {
 
 var initialGameState = {
   randomNumber: random(),
-  difference: [100],
-  hints: []
+  difference: 100,
+  hints: [],
+  fewestGuesses: null,
+  win: false
 };
 
 var gameReducer = function(state, action) {
   console.log('Action:', action);
   state = state || initialGameState;
+  console.log('State:', state);
   if (action.type === actions.NEW_GAME) {
     return Object.assign({}, state, {
       randomNumber: random(),
-      difference: [100],
-      hints: []
+      difference: 100,
+      hints: [],
+      win: false
     });
   }
   else if (action.type === actions.GUESS_NUMBER) {
     var hintWord;
-    var lastDifference = state.difference[state.difference.length - 1];
+    var lastDifference = state.difference;
     var currentDifference = difference(state.randomNumber, action.number);
 
     if (action.number == state.randomNumber) {
-      hintWord = 'You guessed it!';
+      actions.saveGuesses(state.hints.length);
+      return Object.assign({}, state, {
+        win: true,
+      });
     }
     else if (currentDifference > lastDifference) {
       hintWord = 'colder';
@@ -41,10 +48,25 @@ var gameReducer = function(state, action) {
     else {
       hintWord = 'same as the last guess!';
     }
-    console.log('action.number:', action.number);
     return Object.assign({}, state, {
       hints: state.hints.concat(action.number + ': ' + hintWord),
-      difference: state.difference.concat(currentDifference)
+      difference: currentDifference
+    });
+  }
+  else if (action.type === actions.FETCH_GUESSES_SUCCESS) {
+    var guessesToReturn;
+    if (action.guesses > 100) {
+      guessesToReturn = 'unknown';
+    } else {
+      guessesToReturn = action.guesses;
+    }
+    return Object.assign({}, state, {
+      fewestGuesses: guessesToReturn
+    });
+  }
+  else if (action.type === actions.FETCH_GUESSES_ERROR) {
+    return Object.assign({}, state, {
+      fewestGuesses: 'Error fetching fewest guesses!'
     });
   }
   return state;
